@@ -15,22 +15,22 @@ use stm32h7xx_hal::gpio::{gpiob::PB0, gpiob::PB14, Output, PushPull, GpioExt};
 use stm32h7xx_hal::flash::FlashExt;
 use stm32h7xx_hal::rcc::RccExt;
 use stm32h7xx_hal::pwr::PwrExt;
-use embedded_hal::digital::v2::OutputPin;
+use embedded_hal::digital::v2::{OutputPin, ToggleableOutputPin};
+
+use cortex_m_semihosting::{ hprintln};
 
 //#[cfg(debug_assertions)]
 //use cortex_m_log::{print, println};
 //use cortex_m_log::printer::semihosting;
-use cortex_m_semihosting::{ hprintln};
-
 //use cortex_m_log::{d_print, d_println};
 
+use stm32h7xx_hal::pac::DWT;
 
 const PERIOD: u32 = 100_000_000;
 
 
 // We need to pass monotonic = rtfm::cyccnt::CYCCNT to use schedule feature of RTFM
 #[app(device = stm32h7xx_hal::pac,  peripherals = true, monotonic = rtfm::cyccnt::CYCCNT)]
-//#[app(device = stm32h7xx_hal::pac,  peripherals = true)]
 const APP: () = {
     // Global resources (global variables) are defined here and initialized with the
     // `LateResources` struct in init
@@ -46,6 +46,8 @@ const APP: () = {
         // Enable cycle counter
         let mut core = cx.core;
         core.DWT.enable_cycle_counter();
+        let before = core.DWT.cyccnt.read();
+        hprintln!("| {} | before", before).unwrap();
 
         let device: stm32h7xx_hal::stm32::Peripherals = cx.device;
 
@@ -64,7 +66,7 @@ const APP: () = {
         // Setup LED
         let gpiob = device.GPIOB.split(&mut ccdr.ahb4);
         let mut led1 = gpiob.pb0.into_push_pull_output();
-        led1.set_low().unwrap();
+        led1.set_high().unwrap();
         let mut led3 = gpiob.pb14.into_push_pull_output();
         led3.set_low().unwrap();
 
@@ -73,7 +75,7 @@ const APP: () = {
 
         cx.spawn.kicker().unwrap();
 
-        hprintln!("done with init").unwrap();
+        hprintln!("| {} | init done", DWT::get_cycle_count() ).unwrap();
 
         //debug::exit(debug::EXIT_SUCCESS);
 
@@ -84,31 +86,23 @@ const APP: () = {
 
     }
 
-//    #[init(spawn = [kicker])]
-//    fn init(cx: init::Context)  {
-//        hprintln!("init start").unwrap();
-//        cx.spawn.kicker().unwrap();
-//        hprintln!("init done").unwrap();
-//    }
-
     #[task(spawn = [bar, baz])]
     fn kicker(cx: kicker::Context) {
-        hprintln!("kicker start").unwrap();
+        hprintln!("| {} | kicker start", DWT::get_cycle_count() ).unwrap();
         cx.spawn.bar().unwrap();
         cx.spawn.baz().unwrap();
-        hprintln!("kicker done").unwrap();
+        hprintln!("| {} | kicker done", DWT::get_cycle_count() ).unwrap();
+
     }
 
     #[task]
-    fn bar(_: bar::Context) {
-        hprintln!("bar start").unwrap();
-        hprintln!("bar done").unwrap();
+    fn bar(_cx: bar::Context) {
+        hprintln!("| {} | bar done", DWT::get_cycle_count() ).unwrap();
     }
 
     #[task]
-    fn baz(_: baz::Context) {
-        hprintln!("baz start").unwrap();
-        hprintln!("baz done").unwrap();
+    fn baz(_cx: baz::Context) {
+        hprintln!("| {} | baz done",DWT::get_cycle_count() ).unwrap();
     }
 
     #[task(resources = [user_led1, user_led3], schedule = [blinker])]
@@ -116,29 +110,26 @@ const APP: () = {
         // Use the safe local `static mut` of RTFM
         static mut LED_STATE: bool = false;
 
-        hprintln!("blinker").unwrap();
+        hprintln!("| {} | blinker start", DWT::get_cycle_count() ).unwrap();
 
         if *LED_STATE {
-            hprintln!(".").unwrap();
-            cx.resources.user_led1.set_high().unwrap();
-            cx.resources.user_led3.set_high().unwrap();
+            cx.resources.user_led1.toggle().unwrap();
+            cx.resources.user_led3.toggle().unwrap();
             *LED_STATE = false;
         }
         else {
-            hprintln!("o").unwrap();
-            cx.resources.user_led1.set_low().unwrap();
-            cx.resources.user_led3.set_low().unwrap();
+            cx.resources.user_led1.toggle().unwrap();
+            cx.resources.user_led3.toggle().unwrap();
             *LED_STATE = true;
         }
         cx.schedule.blinker(cx.scheduled + PERIOD.cycles()).unwrap();
-        //d_println!(log, "");
 
-        hprintln!("ran").unwrap();
     }
 
-    // needed for dispatching tasks??
+    // define a list of free/unused interrupts that rtfm may utilize
+    // for dispatching software tasks
     extern "C" {
-        fn EXTI0();
+        //fn EXTI0();
         fn EXTI1();
         fn EXTI2();
         fn EXTI3();
