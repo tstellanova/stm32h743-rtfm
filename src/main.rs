@@ -4,7 +4,6 @@
 #![no_std]
 
 
-extern crate h743_rtfm;
 
 //extern crate panic_itm;
 extern crate panic_semihosting;
@@ -13,10 +12,11 @@ use rtfm::app;
 use rtfm::cyccnt::U32Ext;
 
 use stm32h7xx_hal::gpio::{gpiob::PB0, gpiob::PB14, Output, PushPull, GpioExt};
-//use stm32h7xx_hal::prelude::*;
+use stm32h7xx_hal::prelude::*;
 use stm32h7xx_hal::flash::FlashExt;
 use stm32h7xx_hal::rcc::RccExt;
 use stm32h7xx_hal::pwr::PwrExt;
+
 //use stm32h7xx_hal::i2c::I2cExt;
 use stm32h7xx_hal::stm32::I2C1;
 
@@ -28,7 +28,9 @@ use cortex_m_semihosting::{ hprintln};
 
 
 use stm32h7xx_hal::pac::DWT;
-use h743_rtfm::bno080::PortDriver;
+
+use bno080::*;
+//use stm32h7xx_hal::stm32::I2C1;
 
 const BLINK_PERIOD: u32 = 10_000_000;
 
@@ -42,7 +44,10 @@ const APP: () = {
     struct Resources {
         user_led1: PB0<Output<PushPull>>,
         user_led3: PB14<Output<PushPull>>,
-        i2c1_driver: PortDriver<I2C>,
+        i2c1_driver:
+        bno080::BNO080<stm32h7xx_hal::i2c::I2c<I2C1, (stm32h7xx_hal::gpio::gpiob::PB8<stm32h7xx_hal::gpio::Alternate<stm32h7xx_hal::gpio::AF4>>, stm32h7xx_hal::gpio::gpiob::PB9<stm32h7xx_hal::gpio::Alternate<stm32h7xx_hal::gpio::AF4>>)>>
+        //bno080::BNO080<stm32h7xx_hal::i2c::I2c<stm32h7::stm32h743::I2C1, (stm32h7xx_hal::gpio::gpiob::PB8<stm32h7xx_hal::gpio::Alternate<stm32h7xx_hal::gpio::AF4>>, stm32h7xx_hal::gpio::gpiob::PB9<stm32h7xx_hal::gpio::Alternate<stm32h7xx_hal::gpio::AF4>>)>>
+
     }
 
     #[init(schedule = [blinker], spawn=[kicker])]
@@ -77,10 +82,14 @@ const APP: () = {
         let mut led3 = gpiob.pb14.into_push_pull_output();
         led3.set_low().unwrap();
 
-        //I2C_ITConfig(I2C1, I2C_IT_EVT | I2C_IT_BUF | I2C_IT_ERR, ENABLE );
-        let mut i2c1_dev = device.I2C1;
+        //let gpiob = dp.GPIOB.split(&mut ccdr.ahb4);
 
-        let i2c1_driver = PortDriver::new(i2c1_dev);
+        // On NUCLEO-H743ZI2 board, use pins 2 and 4 on CON7
+        // (PB8 = I2C_1_SCL, PB9 = I2C_1_SDA)
+        let scl = gpiob.pb8.into_alternate_af4().set_open_drain();
+        let sda = gpiob.pb9.into_alternate_af4().set_open_drain();
+        let i2c_dev = device.I2C1.i2c((scl, sda), 400.khz(), &ccdr);
+        let i2c1_driver = BNO080::new(i2c_dev);
 
         // Schedule the blinking task
         cx.schedule.blinker(cx.start + BLINK_PERIOD.cycles()).unwrap();
@@ -115,7 +124,10 @@ const APP: () = {
 
        // NVIC_SetVector(I2C0_EV_IRQn, (uint32_t)(&i2c_it_handler));
 
-        cx.resources.i2c1_driver.reset_sensor();
+        let res =  cx.resources.i2c1_driver.soft_reset();
+        if res.is_err() {
+            hprintln!("soft_reset err {:?}", res).unwrap();
+        }
 
         cx.spawn.bar().unwrap();
         cx.spawn.baz().unwrap();
@@ -133,9 +145,9 @@ const APP: () = {
     }
 
     #[task]
-    fn handle_i2c1_input(_cx: handle_i2c1_input::Context,  data: u32) {
+    fn handle_i2c1_input(_cx: handle_i2c1_input::Context,  _data: u32) {
         // each command has a four byte header
-        hprintln!("| {} | baz done",DWT::get_cycle_count() ).unwrap();
+        hprintln!("| {} | handle_i2c1_input",DWT::get_cycle_count() ).unwrap();
     }
 
     #[task(resources = [user_led1, user_led3], schedule = [blinker])]
@@ -162,10 +174,12 @@ const APP: () = {
 //    fn I2C1_EV();  //event
 //    fn I2C1_ER(); //error
 
-    #[task(binds = I2C1_EV, priority = 2, spawn = [handle_i2c1_input])]
-    fn i2c1_ev(cx: i2c1_ev::Context) {
+    //spawn = [handle_i2c1_input]
+    #[task(binds = I2C1_EV, priority = 2, )]
+    fn i2c1_ev(_cx: i2c1_ev::Context) {
         // send data to the handler
-        cx.spawn.handle_i2c1_input(42).ok().unwrap();
+        hprintln!("| {} | I2C1_EV",DWT::get_cycle_count() ).unwrap();
+        //cx.spawn.handle_i2c1_input(42).ok().unwrap();
     }
 
     // define a list of free/unused interrupts that rtfm may utilize
