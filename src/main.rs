@@ -4,6 +4,8 @@
 #![no_std]
 
 
+extern crate h743_rtfm;
+
 //extern crate panic_itm;
 extern crate panic_semihosting;
 
@@ -15,18 +17,21 @@ use stm32h7xx_hal::gpio::{gpiob::PB0, gpiob::PB14, Output, PushPull, GpioExt};
 use stm32h7xx_hal::flash::FlashExt;
 use stm32h7xx_hal::rcc::RccExt;
 use stm32h7xx_hal::pwr::PwrExt;
+//use stm32h7xx_hal::i2c::I2cExt;
+use stm32h7xx_hal::stm32::I2C1;
+
+
+
 use embedded_hal::digital::v2::{OutputPin, ToggleableOutputPin};
 
 use cortex_m_semihosting::{ hprintln};
 
-//#[cfg(debug_assertions)]
-//use cortex_m_log::{print, println};
-//use cortex_m_log::printer::semihosting;
-//use cortex_m_log::{d_print, d_println};
 
 use stm32h7xx_hal::pac::DWT;
+use h743_rtfm::bno080::PortDriver;
 
-const PERIOD: u32 = 100_000_000;
+const BLINK_PERIOD: u32 = 10_000_000;
+
 
 
 // We need to pass monotonic = rtfm::cyccnt::CYCCNT to use schedule feature of RTFM
@@ -37,10 +42,12 @@ const APP: () = {
     struct Resources {
         user_led1: PB0<Output<PushPull>>,
         user_led3: PB14<Output<PushPull>>,
+        i2c1_driver: PortDriver<I2C>,
     }
 
     #[init(schedule = [blinker], spawn=[kicker])]
     fn init(cx: init::Context) -> init::LateResources {
+        // Note that interrupts are disabled in `init`
         hprintln!("init").unwrap();
 
         // Enable cycle counter
@@ -70,8 +77,13 @@ const APP: () = {
         let mut led3 = gpiob.pb14.into_push_pull_output();
         led3.set_low().unwrap();
 
+        //I2C_ITConfig(I2C1, I2C_IT_EVT | I2C_IT_BUF | I2C_IT_ERR, ENABLE );
+        let mut i2c1_dev = device.I2C1;
+
+        let i2c1_driver = PortDriver::new(i2c1_dev);
+
         // Schedule the blinking task
-        cx.schedule.blinker(cx.start + PERIOD.cycles()).unwrap();
+        cx.schedule.blinker(cx.start + BLINK_PERIOD.cycles()).unwrap();
 
         cx.spawn.kicker().unwrap();
 
@@ -82,17 +94,32 @@ const APP: () = {
         init::LateResources {
             user_led1: led1,
             user_led3: led3,
+            i2c1_driver: i2c1_driver,
         }
 
     }
 
-    #[task(spawn = [bar, baz])]
+    #[idle]
+    fn idle(_cx: idle::Context) -> ! {
+        // interrupts are enabled in `idle`
+        hprintln!("| {} | idle start", DWT::get_cycle_count() ).unwrap();
+        loop {
+            rtfm::export::wfi();
+        }
+    }
+
+    // Second phase startup: interrupts are enabled
+    #[task(resources = [i2c1_driver], spawn = [bar, baz]) ]
     fn kicker(cx: kicker::Context) {
         hprintln!("| {} | kicker start", DWT::get_cycle_count() ).unwrap();
+
+       // NVIC_SetVector(I2C0_EV_IRQn, (uint32_t)(&i2c_it_handler));
+
+        cx.resources.i2c1_driver.reset_sensor();
+
         cx.spawn.bar().unwrap();
         cx.spawn.baz().unwrap();
         hprintln!("| {} | kicker done", DWT::get_cycle_count() ).unwrap();
-
     }
 
     #[task]
@@ -105,12 +132,18 @@ const APP: () = {
         hprintln!("| {} | baz done",DWT::get_cycle_count() ).unwrap();
     }
 
+    #[task]
+    fn handle_i2c1_input(_cx: handle_i2c1_input::Context,  data: u32) {
+        // each command has a four byte header
+        hprintln!("| {} | baz done",DWT::get_cycle_count() ).unwrap();
+    }
+
     #[task(resources = [user_led1, user_led3], schedule = [blinker])]
     fn blinker(cx: blinker::Context) {
         // Use the safe local `static mut` of RTFM
         static mut LED_STATE: bool = false;
 
-        hprintln!("| {} | blinker start", DWT::get_cycle_count() ).unwrap();
+        //hprintln!("| {} | blinker start", DWT::get_cycle_count() ).unwrap();
 
         if *LED_STATE {
             cx.resources.user_led1.toggle().unwrap();
@@ -122,8 +155,17 @@ const APP: () = {
             cx.resources.user_led3.toggle().unwrap();
             *LED_STATE = true;
         }
-        cx.schedule.blinker(cx.scheduled + PERIOD.cycles()).unwrap();
+        cx.schedule.blinker(cx.scheduled + BLINK_PERIOD.cycles()).unwrap();
 
+    }
+
+//    fn I2C1_EV();  //event
+//    fn I2C1_ER(); //error
+
+    #[task(binds = I2C1_EV, priority = 2, spawn = [handle_i2c1_input])]
+    fn i2c1_ev(cx: i2c1_ev::Context) {
+        // send data to the handler
+        cx.spawn.handle_i2c1_input(42).ok().unwrap();
     }
 
     // define a list of free/unused interrupts that rtfm may utilize
@@ -135,3 +177,8 @@ const APP: () = {
         fn EXTI3();
     }
 };
+
+#[allow(unused)]
+fn zippy() {
+
+}
