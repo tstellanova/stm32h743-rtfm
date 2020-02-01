@@ -72,6 +72,7 @@ const APP: () = {
 
         // Constrain and Freeze clock
         let rcc = device.RCC.constrain();
+
         //use the existing sysclk
         let mut ccdr = rcc.freeze(vos, &device.SYSCFG);
 
@@ -86,8 +87,9 @@ const APP: () = {
 
         // On NUCLEO-H743ZI2 board, use pins 2 and 4 on CON7
         // (PB8 = I2C_1_SCL, PB9 = I2C_1_SDA)
-        let scl = gpiob.pb8.into_alternate_af4().set_open_drain();
-        let sda = gpiob.pb9.into_alternate_af4().set_open_drain();
+        let scl = gpiob.pb8.into_alternate_af4().internal_pull_up(true).set_open_drain();
+        let sda = gpiob.pb9.into_alternate_af4().internal_pull_up(true).set_open_drain();
+
         let i2c_dev = device.I2C1.i2c((scl, sda), 400.khz(), &ccdr);
         let i2c1_driver = BNO080::new(i2c_dev);
 
@@ -122,11 +124,9 @@ const APP: () = {
     fn kicker(cx: kicker::Context) {
         hprintln!("| {} | kicker start", DWT::get_cycle_count() ).unwrap();
 
-       // NVIC_SetVector(I2C0_EV_IRQn, (uint32_t)(&i2c_it_handler));
-
-        let res =  cx.resources.i2c1_driver.soft_reset();
+        let res =  cx.resources.i2c1_driver.init();
         if res.is_err() {
-            hprintln!("soft_reset err {:?}", res).unwrap();
+            hprintln!("init err {:?}", res).unwrap();
         }
 
         cx.spawn.bar().unwrap();
