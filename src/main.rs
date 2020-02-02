@@ -21,10 +21,10 @@ use stm32h7xx_hal::pwr::PwrExt;
 use stm32h7xx_hal::stm32::I2C1;
 
 
-
 use embedded_hal::digital::v2::{OutputPin, ToggleableOutputPin};
 
 use cortex_m_semihosting::{ hprintln};
+use cortex_m;
 
 
 use stm32h7xx_hal::pac::DWT;
@@ -42,11 +42,11 @@ const APP: () = {
     // Global resources (global variables) are defined here and initialized with the
     // `LateResources` struct in init
     struct Resources {
+        delay_source: stm32h7xx_hal::delay::Delay,
         user_led1: PB0<Output<PushPull>>,
         user_led3: PB14<Output<PushPull>>,
         i2c1_driver:
         bno080::BNO080<stm32h7xx_hal::i2c::I2c<I2C1, (stm32h7xx_hal::gpio::gpiob::PB8<stm32h7xx_hal::gpio::Alternate<stm32h7xx_hal::gpio::AF4>>, stm32h7xx_hal::gpio::gpiob::PB9<stm32h7xx_hal::gpio::Alternate<stm32h7xx_hal::gpio::AF4>>)>>
-        //bno080::BNO080<stm32h7xx_hal::i2c::I2c<stm32h7::stm32h743::I2C1, (stm32h7xx_hal::gpio::gpiob::PB8<stm32h7xx_hal::gpio::Alternate<stm32h7xx_hal::gpio::AF4>>, stm32h7xx_hal::gpio::gpiob::PB9<stm32h7xx_hal::gpio::Alternate<stm32h7xx_hal::gpio::AF4>>)>>
 
     }
 
@@ -62,6 +62,7 @@ const APP: () = {
         hprintln!("| {} | before", before).unwrap();
 
         let device: stm32h7xx_hal::stm32::Peripherals = cx.device;
+        let cp = cortex_m::Peripherals::take().unwrap();
 
         // Setup clocks
         let _flash = device.FLASH.constrain();
@@ -75,6 +76,10 @@ const APP: () = {
 
         //use the existing sysclk
         let mut ccdr = rcc.freeze(vos, &device.SYSCFG);
+
+
+        let delay = cp.SYST.delay(ccdr.clocks);
+
 
         // Setup LED
         let gpiob = device.GPIOB.split(&mut ccdr.ahb4);
@@ -103,6 +108,7 @@ const APP: () = {
         //debug::exit(debug::EXIT_SUCCESS);
 
         init::LateResources {
+            delay_source: delay,
             user_led1: led1,
             user_led3: led3,
             i2c1_driver: i2c1_driver,
@@ -120,13 +126,16 @@ const APP: () = {
     }
 
     // Second phase startup: interrupts are enabled
-    #[task(resources = [i2c1_driver], spawn = [bar, baz]) ]
+    #[task(resources = [i2c1_driver, delay_source], spawn = [bar, baz]) ]
     fn kicker(cx: kicker::Context) {
         hprintln!("| {} | kicker start", DWT::get_cycle_count() ).unwrap();
 
-        let res =  cx.resources.i2c1_driver.init();
+        let res =  cx.resources.i2c1_driver.init(cx.resources.delay_source);
         if res.is_err() {
             hprintln!("init err {:?}", res).unwrap();
+        }
+        else {
+            hprintln!("sensor OK").unwrap();
         }
 
         cx.spawn.bar().unwrap();
