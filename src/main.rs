@@ -116,12 +116,13 @@ const APP: () = {
 
     }
 
-    #[idle]
-    fn idle(_cx: idle::Context) -> ! {
+    #[idle(spawn = [imu_reader]) ]
+    fn idle(cx: idle::Context) -> ! {
         // interrupts are enabled in `idle`
         hprintln!("| {} | idle start", DWT::get_cycle_count() ).unwrap();
         loop {
-            rtfm::export::wfi();
+            //rtfm::export::wfi();
+            cx.spawn.imu_reader().unwrap();
         }
     }
 
@@ -129,7 +130,6 @@ const APP: () = {
     #[task(resources = [i2c1_driver, delay_source], spawn = [bar, baz]) ]
     fn kicker(cx: kicker::Context) {
         hprintln!("| {} | kicker start", DWT::get_cycle_count() ).unwrap();
-
         let res =  cx.resources.i2c1_driver.init(cx.resources.delay_source);
         if res.is_err() {
             hprintln!("init err {:?}", res).unwrap();
@@ -141,6 +141,11 @@ const APP: () = {
         cx.spawn.bar().unwrap();
         cx.spawn.baz().unwrap();
         hprintln!("| {} | kicker done", DWT::get_cycle_count() ).unwrap();
+    }
+
+    #[task(resources = [i2c1_driver])]
+    fn imu_reader(cx: imu_reader::Context) {
+        cx.resources.i2c1_driver.handle_all_messages();
     }
 
     #[task]

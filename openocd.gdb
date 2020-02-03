@@ -9,6 +9,7 @@ set backtrace limit 32
 # detect unhandled exceptions, hard faults and panics
 break DefaultHandler
 break HardFault
+break panic
 break rust_begin_unwind
 # # run the next few lines so the panic message is printed immediately
 # # the number needs to be adjusted for your panic handler
@@ -37,6 +38,6 @@ monitor arm semihosting enable
 load
 
 # start the process but immediately halt the processor
-# stepi
+#stepi
 
 continue
