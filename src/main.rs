@@ -158,7 +158,7 @@ const APP: () = {
         // Use the safe local `static mut` of RTFM
         static mut LED_STATE: bool = false;
 
-        hprintln!("| {} | blinker start", DWT::get_cycle_count() ).unwrap();
+        //hprintln!("| {} | blinker start", DWT::get_cycle_count() ).unwrap();
 
         if *LED_STATE {
             cx.resources.user_led1.toggle().unwrap();
