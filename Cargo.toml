@@ -19,7 +19,7 @@ bno080 = { git = "https://github.com/tstellanova/bno080.git" }
 #stm32h7 = "0.9.0"
 
 #cortex-m-log = { version = "0.6.1", features = ["log-integration", "itm", "semihosting"] }
-#cortex-m = "^0.6.0"
+cortex-m = "^0.6.0"
 #cortex-m-rt = "0.6.11"
 #panic-itm = "~0.4.1"
 #stm32h743 = "0.2.2"
