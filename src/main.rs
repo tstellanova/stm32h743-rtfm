@@ -168,7 +168,7 @@ const APP: () = {
         static mut LED_STATE: bool = false;
 
         //iprintln!(&mut cx.resources.itm.stim[0], "| {} | blinker start", DWT::get_cycle_count() );
-
+        
         if *LED_STATE {
             cx.resources.user_led1.toggle().unwrap();
             cx.resources.user_led3.toggle().unwrap();
