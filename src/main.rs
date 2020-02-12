@@ -18,19 +18,18 @@ use processor_hal::flash::FlashExt;
 use processor_hal::rcc::RccExt;
 use processor_hal::pwr::PwrExt;
 
-use processor_hal::i2c::{I2cExt};
-use processor_hal::stm32::I2C1;
+//use processor_hal::i2c::{I2cExt};
+
+use processor_hal::stm32 as pac;
+use pac::I2C1;
+use pac::DWT;
 
 use embedded_hal::{
     digital::v2::{OutputPin, ToggleableOutputPin},
 };
 
-
 use cortex_m::{iprintln};
 use cortex_m;
-
-
-use processor_hal::pac::DWT;
 
 use bno080::*;
 
@@ -41,7 +40,6 @@ type ImuDriverType = bno080::BNO080<processor_hal::i2c::I2c<I2C1,
     (processor_hal::gpio::gpiob::PB8<processor_hal::gpio::Alternate<processor_hal::gpio::AF4>>,
      processor_hal::gpio::gpiob::PB9<processor_hal::gpio::Alternate<processor_hal::gpio::AF4>>)
 >>;
-
 
 
 // We need to pass monotonic = rtfm::cyccnt::CYCCNT to use schedule feature of RTFM
@@ -81,9 +79,9 @@ const APP: () = {
 
         //use the existing sysclk
         let mut ccdr = rcc.freeze(vos, &dp.SYSCFG);
-//        let clocks = rcc.cfgr.freeze();
+
         // source for delays
-        let delay = cp.SYST.delay(ccdr.clocks);
+        let delay =  processor_hal::delay::Delay::new(cp.SYST, ccdr.clocks);
 
         // Setup LED
         let gpiob = dp.GPIOB.split(&mut ccdr.ahb4);
@@ -100,8 +98,8 @@ const APP: () = {
         // (PB8 = I2C_1_SCL, PB9 = I2C_1_SDA)
         let scl = gpiob.pb8.into_alternate_af4().internal_pull_up(true).set_open_drain();
         let sda = gpiob.pb9.into_alternate_af4().internal_pull_up(true).set_open_drain();
-        let i2c_dev = dp.I2C1.i2c((scl, sda), 400.khz(), &ccdr);
-        //let i2c_dev =  processor_hal::i2c::I2c::i2c1(dp.I2C1, (scl, sda), 400.khz(), ccdr.clocks);
+        //let i2c_dev = dp.I2C1.i2c((scl, sda), 400.khz(), &ccdr);
+        let i2c_dev =  processor_hal::i2c::I2c::i2c1(dp.I2C1, (scl, sda), 400.khz(), &ccdr);
         let i2c1_driver = BNO080::new(i2c_dev);
         
         cx.spawn.kicker().unwrap();
@@ -116,33 +114,32 @@ const APP: () = {
 
     }
 
-//    #[idle]
-//    fn idle(cx: idle::Context) -> ! {
-//        // interrupts are enabled in `idle`
-//        hprintln!("| {} | idle start: {}", DWT::get_cycle_count(), *cur_iterations ).unwrap();
-//        loop {
-//            rtfm::export::wfi();
-//        }
-//    }
+    #[idle]
+    fn idle(_cx: idle::Context) -> ! {
+        // interrupts are enabled in `idle`
+        loop {
+            rtfm::export::wfi();
+        }
+    }
 
     /// Second phase startup: interrupts are enabled
-    #[task(resources = [i2c1_driver, delay_source, itm], spawn = [oneshot], schedule = [imu_reader]) ]
+    #[task(resources = [i2c1_driver, delay_source, itm], schedule = [imu_reader]) ]
     fn kicker(cx: kicker::Context) {
         iprintln!(&mut cx.resources.itm.stim[0], "| {} | kicker start", DWT::get_cycle_count() );
         let res =  cx.resources.i2c1_driver.init(cx.resources.delay_source);
         if res.is_err() {
             iprintln!( &mut cx.resources.itm.stim[0],"bno080 init err {:?}", res);
+            return;
         }
         else {
             iprintln!(&mut cx.resources.itm.stim[0],"bno080 OK");
             cx.schedule.imu_reader(cx.scheduled + IMU_READ_PERIOD.cycles() ).unwrap();
         }
 
-        cx.spawn.oneshot().unwrap();
-        iprintln!(&mut cx.resources.itm.stim[0],"| {} | kicker done", DWT::get_cycle_count() );
+        //iprintln!(&mut cx.resources.itm.stim[0],"| {} | kicker done", DWT::get_cycle_count() );
     }
 
-    #[task(resources = [i2c1_driver, itm], schedule = [imu_reader])]
+    #[task(resources = [i2c1_driver, user_led1, itm], schedule = [imu_reader])]
     fn imu_reader(cx: imu_reader::Context) {
         let handled_count = cx.resources.i2c1_driver.handle_all_messages();
         let sched_res = cx.schedule.imu_reader(cx.scheduled + IMU_READ_PERIOD.cycles());
@@ -151,15 +148,10 @@ const APP: () = {
         }
         else {
             if handled_count > 0 {
+                cx.resources.user_led1.toggle().unwrap();
                 iprintln!(&mut cx.resources.itm.stim[0],"handled {} msgs", handled_count);
             }
         }
-    }
-
-
-    #[task(resources = [itm])]
-    fn oneshot(cx: oneshot::Context) {
-        iprintln!(&mut cx.resources.itm.stim[0], "| {} | oneshot done",DWT::get_cycle_count() );
     }
 
     #[task(resources = [user_led1, user_led3, itm], schedule = [blinker])]
@@ -168,14 +160,14 @@ const APP: () = {
         static mut LED_STATE: bool = false;
 
         //iprintln!(&mut cx.resources.itm.stim[0], "| {} | blinker start", DWT::get_cycle_count() );
-        
+
         if *LED_STATE {
-            cx.resources.user_led1.toggle().unwrap();
+            //cx.resources.user_led1.toggle().unwrap();
             cx.resources.user_led3.toggle().unwrap();
             *LED_STATE = false;
         }
         else {
-            cx.resources.user_led1.toggle().unwrap();
+            //cx.resources.user_led1.toggle().unwrap();
             cx.resources.user_led3.toggle().unwrap();
             *LED_STATE = true;
         }
@@ -186,12 +178,9 @@ const APP: () = {
 
     }
 
-//    #[task(binds = I2C1_EV, priority = 2, )]
-//    fn i2c1_ev(_cx: i2c1_ev::Context) {
-//        // send data to the handler
-//        hprintln!("| {} | I2C1_EV",DWT::get_cycle_count() ).unwrap();
-//    }
+    fn fatal_error_handler() {
 
+    }
     // define a list of free/unused interrupts that rtfm may utilize
     // for dispatching software tasks
     extern "C" {

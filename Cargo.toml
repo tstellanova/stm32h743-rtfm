@@ -16,6 +16,6 @@ embedded-hal = {version = "0.2.3", features = ["unproven"]  }
 cortex-m-rtfm = "0.5.1"
 stm32h7xx-hal = { version = "0.3.0", features = ["stm32h743","rt"] }
 #bno080 = { path = "../../BNO080" }
-bno080 = { git = "https://github.com/tstellanova/bno080.git" }
+#bno080 = { git = "https://github.com/tstellanova/bno080.git" }
 
 cortex-m = "^0.6.0"

@@ -7,17 +7,18 @@
         {
             "cwd": "${workspaceRoot}",
             "executable": "target/thumbv7em-none-eabihf/debug/h743_rtfm",
-            "name": "Debug Microcontroller",
+            "name": "Nucleo H743",
             "request": "launch",
             "type": "cortex-debug",
             "servertype": "openocd",
             "runToMain":true,
             "configFiles": [
                 "interface/stlink.cfg",
-                "board/st_nucleo_h743zi.cfg",
+                //"board/st_nucleo_h743zi.cfg"
+                "target/stm32h7x.cfg"
             ],
             "swoConfig": {
-                "enabled": true,
+                "enabled": false,
                 "cpuFrequency": 48000000,
                 "swoFrequency": 2000000,
                 "source": "probe",
